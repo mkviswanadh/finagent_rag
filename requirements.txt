@@ -25,3 +25,6 @@ openpyxl==3.1.5              # Coding_Sheet_RESULTS.xlsx read/write
 # so `pip install -r requirements.txt` reproduces this exact working environment).
 transformers==4.56.2
 torch==2.5.1
+
+# --- Test-only ---
+pytest==9.1.1

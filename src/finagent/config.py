@@ -48,6 +48,11 @@ RUN_TRACES_DIR = DATA_DIR / "run_traces"
 RESULTS_WORKBOOK_ORIGINAL = PROJECT_ROOT / "Coding_Sheet.xlsx"
 RESULTS_WORKBOOK_COPY = PROJECT_ROOT / "Coding_Sheet_RESULTS.xlsx"
 
+ARCHIVE_DIR = PROJECT_ROOT / "archive"
+"""Timestamped snapshots of results/report files, written by `results.archive.archive_file` before
+each run overwrites them — see that module for why (a run that produces worse results than the last
+one, or crashes partway through, must not silently destroy the previous good output)."""
+
 # ---------------------------------------------------------------------------
 # Fixed controlled setup (Proposal Table 7.12 / Coding_Sheet "Common Metrics")
 # ---------------------------------------------------------------------------

@@ -119,7 +119,7 @@ src/finagent/
   agents/                 The 7 agents
   metrics/                The 5 metric families
   experiments/            The 14 experiment runners, registry, and stratified sampling
-  results/                Results workbook writer
+  results/                Report writer + run-output archiving
   logging_config.py
 src/tests/                pytest suite (mirrors the src/finagent/ layout)
 scripts/                  run_pilot.py, export_pilot_results.py, generate_call_budget.py

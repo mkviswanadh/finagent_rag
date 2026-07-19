@@ -22,6 +22,9 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from finagent.results.archive import archive_file  # noqa: E402
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT_PATH = PROJECT_ROOT / "pilot_run_report.json"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "Pilot_Results_Draft.xlsx"
@@ -154,6 +157,10 @@ def main(report_path: Path = DEFAULT_REPORT_PATH, output_path: Path = DEFAULT_OU
     build_detail_sheet(wb, rows)
     build_experiment_summary_sheet(wb, rows)
     build_metric_coverage_sheet(wb, rows)
+
+    archived = archive_file(output_path, category="pilot")
+    if archived:
+        print(f"Previous export archived to: {archived}")
     wb.save(output_path)
 
     print(f"Written: {output_path}")

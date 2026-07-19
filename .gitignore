@@ -28,6 +28,7 @@ data/groq_key_usage.json
 *.log
 pilot_run_report.json
 Pilot_Results_Draft.xlsx
+archive/
 
 # Coding_Sheet.xlsx (supervisor-provided tracker) and its populated results copy are working
 # documents, not code — kept local rather than published

@@ -22,7 +22,7 @@ from finagent.data.schemas import (
     VerificationResult,
 )
 from finagent.metrics import compute_all_metrics
-from finagent.results.report_writer import ReportWriter
+from finagent.results.report_writer import ReportWriter, archive_results_workbook
 
 pytestmark = pytest.mark.skipif(
     not RESULTS_WORKBOOK_ORIGINAL.exists(), reason="Coding_Sheet.xlsx not present in this environment"
@@ -78,6 +78,21 @@ class TestEnsureWorkbookExists:
         original_mtime = throwaway_workbook_path.stat().st_mtime
         ReportWriter(path=throwaway_workbook_path)
         assert throwaway_workbook_path.stat().st_mtime == original_mtime
+
+
+class TestArchiveResultsWorkbook:
+    def test_returns_none_when_nothing_to_archive(self, tmp_path):
+        missing = tmp_path / "not_created_yet.xlsx"
+        assert archive_results_workbook(missing, archive_dir=tmp_path / "archive") is None
+
+    def test_archives_existing_workbook_without_modifying_it(self, throwaway_workbook_path, tmp_path):
+        original_bytes = throwaway_workbook_path.read_bytes()
+        archived = archive_results_workbook(throwaway_workbook_path, archive_dir=tmp_path / "archive")
+
+        assert archived is not None
+        assert archived.exists()
+        assert archived.read_bytes() == original_bytes
+        assert throwaway_workbook_path.read_bytes() == original_bytes
 
 
 class TestWriteOverallPerformance:

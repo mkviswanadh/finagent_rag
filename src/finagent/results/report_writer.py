@@ -17,8 +17,9 @@ from pathlib import Path
 import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
-from finagent.config import RESULTS_WORKBOOK_COPY, RESULTS_WORKBOOK_ORIGINAL
+from finagent.config import ARCHIVE_DIR, RESULTS_WORKBOOK_COPY, RESULTS_WORKBOOK_ORIGINAL
 from finagent.data.schemas import QueryComplexity, QuestionResult
+from finagent.results.archive import archive_file
 
 _SHEET_OVERALL_PERFORMANCE = "Overall Performance Results of "  # trailing space is intentional
 _SHEET_RETRIEVAL_GROUNDING = "Retrieval and Evidence Groundin"
@@ -76,6 +77,27 @@ def _find_row(ws: Worksheet, exp_col: int, exp_id: str, *, extra_col: int | None
                 continue
         return row
     return None
+
+
+def archive_results_workbook(
+    path: str | Path = RESULTS_WORKBOOK_COPY, *, archive_dir: Path = ARCHIVE_DIR
+) -> Path | None:
+    """Snapshot the current `Coding_Sheet_RESULTS.xlsx` into `archive/` before a new run session
+    starts writing to it.
+
+    Call this once, before instantiating any `ReportWriter`, at the start of a full experiment-run
+    session — not per experiment, since a `ReportWriter`'s writes accumulate across many calls
+    (one per experiment) within a single run, and archiving between each of those would snapshot a
+    partially-written file rather than the previous run's finished result.
+
+    Args:
+        path: The workbook to archive.
+        archive_dir: Root archive directory — overridable for tests.
+
+    Returns:
+        The archived copy's path, or `None` if there was no existing workbook to archive yet.
+    """
+    return archive_file(path, category="full_run", archive_dir=archive_dir)
 
 
 class ReportWriter:

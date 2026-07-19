@@ -49,6 +49,7 @@ from finagent.experiments.sampling import (
 )
 from finagent.llm.groq_client import GroqCallError, GroqClient
 from finagent.logging_config import configure_logging
+from finagent.results.archive import archive_file
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,9 @@ def run_pilot() -> None:
         "total_calls": total_calls,
         "runs": results,
     }
+    archived = archive_file(PILOT_REPORT_PATH, category="pilot")
+    if archived:
+        logger.info("Previous pilot report archived to %s", archived)
     PILOT_REPORT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Full report written to %s", PILOT_REPORT_PATH)
     logger.info("Full log written to %s", PILOT_LOG_PATH)

@@ -72,10 +72,14 @@ _SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # whatever specific label (e.g. "Legal Proceedings") was last matched by name, for every note
     # afterward that happens not to match one of the named patterns above — potentially
     # mislabeling the rest of the document. Matching the numbering convention itself ("NOTE 12.",
-    # "Note 3 –") catches every footnote transition regardless of its topic.
+    # "Note 3 –") catches every footnote transition regardless of its topic. As with the "Other
+    # Item Disclosures" pattern below, `(\S.*)?$` captures the trailing title text too, so the
+    # match spans the whole heading line ("NOTE 6. Supplemental Income Statement Information") —
+    # matching only the short "NOTE 6." prefix would score a low coverage ratio against the full
+    # line and get rejected by `_MIN_HEADING_MATCH_COVERAGE`.
     (
         "Notes to Financial Statements",
-        re.compile(r"^\s*note\s+\d{1,2}[a-z]?[.\-–—:]", re.IGNORECASE),
+        re.compile(r"^\s*note\s+\d{1,2}[a-z]?[.\-–—:]\s*(\S.*)?$", re.IGNORECASE),
     ),
     # Similarly, Part II/III/IV of a 10-K (Item 9 onward: changes in accountants, controls,
     # governance, compensation, exhibits) contains items with no direct financial-QA relevance

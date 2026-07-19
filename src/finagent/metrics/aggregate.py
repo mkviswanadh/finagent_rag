@@ -3,7 +3,7 @@
 Every experiment runner (finagent-experiments skill §4) should call `compute_all_metrics` exactly
 once per question rather than calling individual metric functions ad hoc — this is what guarantees
 the `QuestionResult.metrics` dict has consistent keys across all 14 experiments, which the results
-writer (`finagent.results.workbook_writer`) depends on to populate `Coding_Sheet_RESULTS.xlsx`'s
+writer (`finagent.results.report_writer`) depends on to populate `Coding_Sheet_RESULTS.xlsx`'s
 columns generically.
 
 Not every metric applies to every experiment: Direct LLM experiments (EXP-01..06) have no

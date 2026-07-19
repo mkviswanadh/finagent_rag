@@ -335,7 +335,7 @@ or cross-checking against FinanceBench's own labeled evidence pages.
 
 ## 7. Recording the results (`results/`)
 
-### `ResultsWorkbookWriter.write_overall_performance(exp_id, question_results)`
+### `ReportWriter.write_overall_performance(exp_id, question_results)`
 - **Input:** an experiment ID and every question result from that experiment's run.
 - **What happens:** averages the core metrics (relevance, exact match, F1, faithfulness,
   hallucination rate, latency, token usage...) across all the questions, then writes those averages
@@ -343,17 +343,17 @@ or cross-checking against FinanceBench's own labeled evidence pages.
 - **Output:** nothing returned — the spreadsheet is updated in place. `Coding_Sheet.xlsx` (the
   original) is never touched.
 
-### `ResultsWorkbookWriter.write_retrieval_grounding(exp_id, question_results)`
+### `ReportWriter.write_retrieval_grounding(exp_id, question_results)`
 - **What happens:** same idea, but for retrieval-specific metrics (context precision/recall,
   Hit@K, MRR...) — only meaningful for the 8 RAG experiments, since Direct LLM experiments never
   retrieve anything.
 
-### `ResultsWorkbookWriter.write_query_complexity_breakdown(exp_id, question_results)`
+### `ReportWriter.write_query_complexity_breakdown(exp_id, question_results)`
 - **What happens:** splits the results by whether each question was Simple, Moderate, or Complex,
   and writes one averaged row per complexity tier — this is what lets the thesis directly answer
   "does complexity affect performance?"
 
-### `ResultsWorkbookWriter.write_comparative_ranking_row(exp_id, ...)`
+### `ReportWriter.write_comparative_ranking_row(exp_id, ...)`
 - **What happens:** writes the final cross-experiment comparison row (composite scores, rank,
   headline finding) — filled in only after all 14 experiments have already been run and recorded,
   since it's a summary of everything else, not a fresh measurement.

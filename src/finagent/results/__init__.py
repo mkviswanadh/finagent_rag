@@ -1,3 +1,3 @@
-from finagent.results.workbook_writer import ResultsWorkbookWriter
+from finagent.results.report_writer import ReportWriter
 
-__all__ = ["ResultsWorkbookWriter"]
+__all__ = ["ReportWriter"]

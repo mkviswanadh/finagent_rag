@@ -78,7 +78,7 @@ def _find_row(ws: Worksheet, exp_col: int, exp_id: str, *, extra_col: int | None
     return None
 
 
-class ResultsWorkbookWriter:
+class ReportWriter:
     """Writes averaged per-experiment results into `Coding_Sheet_RESULTS.xlsx`'s four result sheets."""
 
     def __init__(self, path: str | Path = RESULTS_WORKBOOK_COPY) -> None:

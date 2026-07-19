@@ -134,5 +134,5 @@ flowchart TD
     B --> C3["Grounding & Trust\n(faithfulness, hallucination rate,\nevidence coverage, citation correctness)"]
     B --> C4["Financial Reasoning\n(numerical/calculation accuracy,\nmulti-step score, explanation completeness)"]
     B --> C5["Efficiency\n(latency, tokens, cost)"]
-    C1 & C2 & C3 & C4 & C5 --> D["ResultsWorkbookWriter\nwrites averaged per-experiment metrics\ninto Coding_Sheet_RESULTS.xlsx\n(never touches the original Coding_Sheet.xlsx)"]
+    C1 & C2 & C3 & C4 & C5 --> D["ReportWriter\nwrites averaged per-experiment metrics\ninto Coding_Sheet_RESULTS.xlsx\n(never touches the original Coding_Sheet.xlsx)"]
 ```

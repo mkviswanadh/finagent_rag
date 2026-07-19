@@ -1,4 +1,4 @@
-"""Tests for workbook_writer.py — writes into a throwaway copy, never the project's real
+"""Tests for report_writer.py — writes into a throwaway copy, never the project's real
 Coding_Sheet_RESULTS.xlsx or Coding_Sheet.xlsx, so running this suite is always safe."""
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from finagent.data.schemas import (
     VerificationResult,
 )
 from finagent.metrics import compute_all_metrics
-from finagent.results.workbook_writer import ResultsWorkbookWriter
+from finagent.results.report_writer import ReportWriter
 
 pytestmark = pytest.mark.skipif(
     not RESULTS_WORKBOOK_ORIGINAL.exists(), reason="Coding_Sheet.xlsx not present in this environment"
@@ -71,18 +71,18 @@ class TestEnsureWorkbookExists:
     def test_creates_copy_if_missing(self, tmp_path):
         target = tmp_path / "new_results.xlsx"
         assert not target.exists()
-        ResultsWorkbookWriter(path=target)
+        ReportWriter(path=target)
         assert target.exists()
 
     def test_does_not_overwrite_existing(self, throwaway_workbook_path):
         original_mtime = throwaway_workbook_path.stat().st_mtime
-        ResultsWorkbookWriter(path=throwaway_workbook_path)
+        ReportWriter(path=throwaway_workbook_path)
         assert throwaway_workbook_path.stat().st_mtime == original_mtime
 
 
 class TestWriteOverallPerformance:
     def test_writes_correct_row_without_touching_others(self, throwaway_workbook_path):
-        writer = ResultsWorkbookWriter(path=throwaway_workbook_path)
+        writer = ReportWriter(path=throwaway_workbook_path)
         results = [_make_question_result(f"q{i}", QueryComplexity.SIMPLE, "EXP-11") for i in range(3)]
         writer.write_overall_performance("EXP-11", results)
 
@@ -97,14 +97,14 @@ class TestWriteOverallPerformance:
         assert ws.cell(other_row, headers["Answer Relevance"]).value is None
 
     def test_unknown_exp_id_raises(self, throwaway_workbook_path):
-        writer = ResultsWorkbookWriter(path=throwaway_workbook_path)
+        writer = ReportWriter(path=throwaway_workbook_path)
         with pytest.raises(ValueError):
             writer.write_overall_performance("EXP-99", [])
 
 
 class TestWriteQueryComplexityBreakdown:
     def test_writes_all_three_complexity_rows(self, throwaway_workbook_path):
-        writer = ResultsWorkbookWriter(path=throwaway_workbook_path)
+        writer = ReportWriter(path=throwaway_workbook_path)
         results = (
             [_make_question_result(f"s{i}", QueryComplexity.SIMPLE, "EXP-11") for i in range(3)]
             + [_make_question_result(f"m{i}", QueryComplexity.MODERATE, "EXP-11") for i in range(2)]
@@ -127,7 +127,7 @@ class TestWriteQueryComplexityBreakdown:
 def test_original_workbook_never_modified(throwaway_workbook_path):
     """Sanity check: the writer only ever touches the copy passed to it, never the real original."""
     original_mtime_before = RESULTS_WORKBOOK_ORIGINAL.stat().st_mtime
-    writer = ResultsWorkbookWriter(path=throwaway_workbook_path)
+    writer = ReportWriter(path=throwaway_workbook_path)
     results = [_make_question_result("q1", QueryComplexity.SIMPLE, "EXP-11")]
     writer.write_overall_performance("EXP-11", results)
     assert RESULTS_WORKBOOK_ORIGINAL.stat().st_mtime == original_mtime_before

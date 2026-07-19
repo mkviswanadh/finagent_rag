@@ -272,3 +272,22 @@ table as the corrected read, not the exported files.
   correctness, which this pilot confirms is solid.
 - §7.11 steps 12-15 (evaluate/compare/error-analysis/summarize across the full run) depend on that
   full run existing.
+
+## Freezing Known-Good State
+
+The practical "freeze" mechanism here is the combination of the pytest suite (311 tests, mocked
+Groq client, zero API cost — run with `PYTHONPATH=src python -m pytest src/tests -q` any time) and
+an annotated git tag at every point this suite is green and the codebase has been through a real
+validation pass like this one. A tag is just a permanent pointer to a commit — future work keeps
+happening on `main`, but `git checkout <tag>` (or `git diff <tag>..main`) always gets back to exactly
+this state, so a regression introduced later can be pinpointed against a known-good baseline instead
+of guessing.
+
+Current checkpoints:
+
+| Tag | Commit | Marks |
+|---|---|---|
+| `v0.1.0-pilot-validated` | `62c0535` | Full pipeline (7 agents, 14 experiments, 5 metric families) implemented, 311 tests passing, per-company parsing validated, live pilot run (56/56) clean, stratified sampling built, repo cleaned up for GitHub publish. Full 150-question run not yet done. |
+
+Cut a new tag after any future change that (a) passes the full suite and (b) represents a real,
+intentional milestone (not every commit) — e.g. once the full 150-question run completes.

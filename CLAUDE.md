@@ -14,7 +14,14 @@ This workspace is for **coding/development/implementation only**. The literature
   (Patronus' own baselines, reference only), `chroma_store/` (git-ignored, generated).
 - **Git**: remote is `github.com/mkviswanadh/finagent_rag`, branch `main`. Confirm with the user
   before pushing (per standing operating guidance), even though local commits are fine to make freely.
-- **Secrets**: `GROQ_API_KEY` goes in a git-ignored `.env` file at project root (see `.env.example`).
+- **Secrets**: `GROQ_API_KEY` (single key) or `GROQ_API_KEYS` (comma-separated multi-account pool —
+  see `llm/key_pool.py`) goes in a git-ignored `.env` file at project root (see `.env.example`).
+  Multi-key exists because this account is on Groq's free tier (30 RPM / 1K RPD / 12K TPM / 100K
+  TPD for llama-3.3-70b-versatile), which the full 150-question × 14-experiment run's ~6.36M-token
+  budget (see `Groq_API_Call_Budget.xlsx`) would take ~71 sequential days to fit through on one
+  key — Groq's limits are per-organization, not per-key, so pooled keys only add real quota if
+  each belongs to a genuinely separate account. Paid-tier upgrade was the preferred fix but was
+  unavailable ("temporarily unavailable due to high demand") when checked.
 
 ## Requirement Deviations (from Proposal §8 / Table 8.1)
 

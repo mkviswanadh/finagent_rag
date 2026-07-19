@@ -18,6 +18,7 @@ __pycache__/
 data/pdfs/
 data/chroma_store/
 data/run_traces/
+data/groq_key_usage.json
 
 # Editor/OS
 .vscode/

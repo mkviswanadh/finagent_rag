@@ -75,6 +75,22 @@ GROQ_PRICE_PER_MILLION_OUTPUT_TOKENS_USD = 0.79
 # Multi-query expansion width used by EXP-10 and, when the adaptive route selects it, EXP-11/12/13/14.
 MULTI_QUERY_VARIANT_COUNT = 3
 
+# Groq free-tier limits for llama-3.3-70b-versatile, as published at
+# console.groq.com/docs/rate-limits (confirmed against this project's own account, 2026). Limits
+# apply per ORGANIZATION, not per key — Groq's own docs state this explicitly — so these are only
+# meaningful per key when each key genuinely belongs to a separate account/organization. A small
+# safety margin (not the exact published number) is used so the pool proactively rotates away from
+# a key before it actually 429s, rather than relying on hitting the wall and retrying.
+GROQ_FREE_TIER_RPM = 30
+GROQ_FREE_TIER_RPD = 1000
+GROQ_FREE_TIER_TPM = 12000
+GROQ_FREE_TIER_TPD = 100000
+GROQ_KEY_SAFETY_MARGIN = 0.9  # treat a key as exhausted at 90% of its published daily cap
+GROQ_KEY_USAGE_STATE_PATH = DATA_DIR / "groq_key_usage.json"
+"""Persistent per-key daily usage tracker (git-ignored — see .gitignore) — survives process
+restarts so a multi-day paced run doesn't lose track of how much of each key's daily budget has
+already been spent."""
+
 # Bounded retry policy for transient Groq failures (rate limit / timeout / 5xx).
 GROQ_MAX_RETRIES = 4
 GROQ_RETRY_MIN_WAIT_SECONDS = 1.0
@@ -94,16 +110,31 @@ MAX_TOKENS_VERIFICATION = 400
 MAX_TOKENS_DIRECT_ANSWER = 600
 
 
+def _parse_groq_api_keys() -> list[str]:
+    """Read one or more Groq API keys from the environment.
+
+    `GROQ_API_KEYS` (comma-separated) takes precedence, for a multi-account key pool
+    (`llm.key_pool.GroqKeyPool`) — each key must belong to a *separate* Groq account/organization
+    to actually add quota, since Groq's free-tier limits apply per organization, not per key (see
+    `GROQ_FREE_TIER_*` above). Falls back to the single `GROQ_API_KEY` for the common single-key case.
+    """
+    multi = os.environ.get("GROQ_API_KEYS")
+    if multi:
+        return [k.strip() for k in multi.split(",") if k.strip()]
+    single = os.environ.get("GROQ_API_KEY")
+    return [single] if single else []
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings bundle, resolved once per process and threaded through explicitly.
 
-    Reading `GROQ_API_KEY` happens lazily (only when an LLM call is actually made) so that
+    Reading Groq API keys happens lazily (only when an LLM call is actually made) so that
     modules which don't touch the network — document processing, metrics, results writing —
     can be imported and unit-tested without an API key present.
     """
 
-    groq_api_key: str | None = field(default_factory=lambda: os.environ.get("GROQ_API_KEY"))
+    groq_api_keys: list[str] = field(default_factory=_parse_groq_api_keys)
     groq_model: str = GROQ_MODEL
     embedding_model_name: str = EMBEDDING_MODEL_NAME
     chunk_size_tokens: int = CHUNK_SIZE_TOKENS
@@ -113,19 +144,30 @@ class Settings:
     chroma_persist_dir: Path = CHROMA_PERSIST_DIR
     chroma_collection_name: str = CHROMA_COLLECTION_NAME
 
+    @property
+    def groq_api_key(self) -> str | None:
+        """The first configured key, for callers that only need a single key (e.g. `require_api_key`)."""
+        return self.groq_api_keys[0] if self.groq_api_keys else None
+
     def require_api_key(self) -> str:
-        """Return the Groq API key or raise a clear, actionable error if it's missing.
+        """Return the first Groq API key or raise a clear, actionable error if none is configured.
 
         Raises:
-            RuntimeError: if `GROQ_API_KEY` is not set in the environment or a `.env` file.
+            RuntimeError: if neither `GROQ_API_KEY` nor `GROQ_API_KEYS` is set.
         """
-        if not self.groq_api_key:
+        if not self.groq_api_keys:
             raise RuntimeError(
-                "GROQ_API_KEY is not set. Add it to a .env file in the project root "
-                "(GROQ_API_KEY=gsk_...) or export it in the shell environment before "
-                "running any experiment that calls the LLM."
+                "No Groq API key is set. Add GROQ_API_KEY=gsk_... (single key) or "
+                "GROQ_API_KEYS=gsk_key1,gsk_key2,... (multi-account pool) to a .env file in the "
+                "project root, or export it in the shell environment, before running any "
+                "experiment that calls the LLM."
             )
-        return self.groq_api_key
+        return self.groq_api_keys[0]
+
+    def require_api_keys(self) -> list[str]:
+        """Return all configured Groq API keys, for `GroqKeyPool`. Same error as `require_api_key`."""
+        self.require_api_key()
+        return self.groq_api_keys
 
 
 DEFAULT_SETTINGS = Settings()

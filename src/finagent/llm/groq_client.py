@@ -13,6 +13,10 @@ constraint"):
    (Proposal Table 7.17).
 4. `temperature` defaults to `config.LLM_TEMPERATURE` (0.0) and every call requires an explicit,
    right-sized `max_tokens` — no unbounded generations.
+5. When `Settings.groq_api_keys` has more than one key (a `GroqKeyPool` — see `key_pool.py`), a
+   rate-limit error on one key rotates to the next key immediately rather than backing off and
+   waiting on an exhausted one. This only adds real quota when each key belongs to a separate
+   Groq account/organization (Groq's limits apply per-organization, not per-key).
 """
 
 from __future__ import annotations
@@ -39,14 +43,16 @@ from finagent.config import (
     Settings,
 )
 from finagent.data.schemas import LLMCallRecord
+from finagent.llm.key_pool import GroqKeyPool
 
 logger = logging.getLogger(__name__)
 
-_TRANSIENT_ERRORS = (RateLimitError, APITimeoutError, APIConnectionError, APIStatusError)
+_NON_RATE_LIMIT_TRANSIENT_ERRORS = (APITimeoutError, APIConnectionError, APIStatusError)
+_ALL_TRANSIENT_ERRORS = (RateLimitError, *_NON_RATE_LIMIT_TRANSIENT_ERRORS)
 
 
 class GroqCallError(RuntimeError):
-    """Raised when a Groq call fails after exhausting all retries, or returns unusable content."""
+    """Raised when a Groq call fails after exhausting all retries (and all pooled keys, if any)."""
 
 
 class GroqClient:
@@ -55,20 +61,36 @@ class GroqClient:
     Every agent in `finagent.agents` receives a `GroqClient` instance rather than constructing its
     own `groq.Groq` client — this is what makes call-count auditing and a single shared retry
     policy possible.
+
+    Args:
+        settings: Runtime settings, including `groq_api_keys`. Defaults to `Settings()`.
+        key_pool: Explicit `GroqKeyPool` to use instead of building one from `settings` — mainly
+            for tests that need an isolated (non-default-path) pool; production code should leave
+            this `None` and let it build from `settings.groq_api_keys`.
     """
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, key_pool: GroqKeyPool | None = None) -> None:
         self._settings = settings or Settings()
-        self._client: Groq | None = None
+        self._clients: dict[str, Groq] = {}
+        api_keys = self._settings.groq_api_keys
+        if key_pool is not None:
+            self._key_pool: GroqKeyPool | None = key_pool
+        else:
+            self._key_pool = GroqKeyPool(api_keys) if len(api_keys) > 1 else None
 
     @property
     def model(self) -> str:
         return self._settings.groq_model
 
-    def _client_lazy(self) -> Groq:
-        if self._client is None:
-            self._client = Groq(api_key=self._settings.require_api_key())
-        return self._client
+    @property
+    def key_pool(self) -> GroqKeyPool | None:
+        """The multi-key pool, if more than one API key is configured, else `None`."""
+        return self._key_pool
+
+    def _client_for_key(self, api_key: str) -> Groq:
+        if api_key not in self._clients:
+            self._clients[api_key] = Groq(api_key=api_key)
+        return self._clients[api_key]
 
     def complete(
         self,
@@ -104,9 +126,8 @@ class GroqClient:
             bounded-retries on invalid JSON on top of this method's transient-error retries.
 
         Raises:
-            GroqCallError: if all retries are exhausted without a usable response.
+            GroqCallError: if all retries (and, in pool mode, all keys) are exhausted.
         """
-        client = self._client_lazy()
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -120,31 +141,84 @@ class GroqClient:
         if response_format_json:
             kwargs["response_format"] = {"type": "json_object"}
 
+        pool = self._key_pool
+        max_key_attempts = pool.size if pool else 1
+        tried_keys: set[str] = set()
+        last_error: Exception | None = None
+
+        for _ in range(max_key_attempts):
+            if pool:
+                api_key = pool.select_key(exclude=frozenset(tried_keys))
+                if api_key is None:
+                    break  # every key in the pool is exhausted for today
+            else:
+                api_key = self._settings.require_api_key()
+
+            try:
+                record = self._complete_with_single_key(
+                    api_key, agent_name, system_prompt, user_prompt, kwargs, temperature
+                )
+            except RateLimitError as exc:
+                tried_keys.add(api_key)
+                last_error = exc
+                if pool:
+                    pool.mark_exhausted(api_key)
+                    logger.warning(
+                        "agent=%s: key ...%s rate-limited, rotating to next key", agent_name, api_key[-4:]
+                    )
+                    continue
+                raise GroqCallError(
+                    f"Groq call for agent '{agent_name}' failed: rate limited with no additional "
+                    f"keys configured: {exc}"
+                ) from exc
+            except _NON_RATE_LIMIT_TRANSIENT_ERRORS as exc:
+                raise GroqCallError(
+                    f"Groq call for agent '{agent_name}' failed after {GROQ_MAX_RETRIES} attempts: {exc}"
+                ) from exc
+            else:
+                if pool:
+                    pool.record_usage(api_key, record.total_tokens)
+                return record
+
+        raise GroqCallError(
+            f"Groq call for agent '{agent_name}' failed: all {max_key_attempts} configured key(s) "
+            f"exhausted or rate-limited. Last error: {last_error}"
+        )
+
+    def _complete_with_single_key(
+        self,
+        api_key: str,
+        agent_name: str,
+        system_prompt: str,
+        user_prompt: str,
+        kwargs: dict[str, Any],
+        temperature: float,
+    ) -> LLMCallRecord:
+        """Issue one call on a specific key, with tenacity-backed retry for transient failures.
+
+        Raises the original `RateLimitError`/`APITimeoutError`/etc. (not wrapped in
+        `GroqCallError`) once retries are exhausted, so `complete` can distinguish "rotate to the
+        next key" (rate limit) from "give up, this isn't a quota problem" (other transient errors).
+        """
+        client = self._client_for_key(api_key)
         retries_used = 0
 
         @retry(
-            retry=retry_if_exception_type(_TRANSIENT_ERRORS),
+            retry=retry_if_exception_type(_ALL_TRANSIENT_ERRORS),
             stop=stop_after_attempt(GROQ_MAX_RETRIES),
-            wait=wait_exponential(
-                multiplier=GROQ_RETRY_MIN_WAIT_SECONDS, max=GROQ_RETRY_MAX_WAIT_SECONDS
-            ),
+            wait=wait_exponential(multiplier=GROQ_RETRY_MIN_WAIT_SECONDS, max=GROQ_RETRY_MAX_WAIT_SECONDS),
             reraise=True,
         )
         def _call() -> Any:
             nonlocal retries_used
             try:
                 return client.chat.completions.create(**kwargs)
-            except _TRANSIENT_ERRORS:
+            except _ALL_TRANSIENT_ERRORS:
                 retries_used += 1
                 raise
 
         start = time.perf_counter()
-        try:
-            response = _call()
-        except _TRANSIENT_ERRORS as exc:
-            raise GroqCallError(
-                f"Groq call for agent '{agent_name}' failed after {GROQ_MAX_RETRIES} attempts: {exc}"
-            ) from exc
+        response = _call()
         latency = time.perf_counter() - start
 
         choice = response.choices[0]

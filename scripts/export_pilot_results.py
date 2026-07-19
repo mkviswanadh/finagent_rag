@@ -53,23 +53,29 @@ def build_detail_sheet(wb: openpyxl.Workbook, rows: list[dict]) -> None:
     ws.title = "Detail (per run)"
     headers = [
         "Exp. No.", "Question ID", "Status", "Complexity", "Calls", "Total Tokens",
-        "Elapsed (s)", "Reference Answer", "Generated Answer", *METRIC_COLUMNS, "Error",
+        "Elapsed (s)", "Stage Timings (s)", "Retrieved Chunks", "Query Analysis (company/year/metric)",
+        "Reference Answer", "Generated Answer", *METRIC_COLUMNS, "Error",
     ]
     ws.append(headers)
     _style_header(ws)
 
     for r in rows:
         metrics = r.get("metrics", {})
+        qa = r.get("query_analysis") or {}
+        qa_summary = (
+            f"{qa.get('company')}/{qa.get('year')}/{qa.get('metric')}" if qa else ""
+        )
         row_values = [
             r["exp_id"], r["question_id"], r["status"], r.get("complexity_used", ""),
             r.get("num_llm_calls", ""), r.get("total_tokens", ""), r.get("elapsed_seconds", ""),
+            str(r.get("stage_timings", {})), len(r.get("retrieved_chunk_ids", []) or []), qa_summary,
             r.get("reference_answer", ""), r.get("generated_answer", ""),
             *[metrics.get(k, None) for k in METRIC_COLUMNS],
             r.get("error", ""),
         ]
         ws.append(row_values)
 
-    widths = [10, 24, 10, 11, 7, 12, 11, 30, 45] + [12] * len(METRIC_COLUMNS) + [40]
+    widths = [10, 24, 10, 11, 7, 12, 11, 24, 14, 24, 30, 45] + [12] * len(METRIC_COLUMNS) + [40]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
@@ -132,8 +138,17 @@ def build_metric_coverage_sheet(wb: openpyxl.Workbook, rows: list[dict]) -> None
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
+def _load_rows(report_path: Path) -> list[dict]:
+    """Accepts both the current report shape ({"runs": [...], ...metadata}) and the older flat
+    list shape, so this export script keeps working against reports from either format."""
+    data = json.loads(report_path.read_text(encoding="utf-8"))
+    if isinstance(data, dict) and "runs" in data:
+        return data["runs"]
+    return data
+
+
 def main(report_path: Path = DEFAULT_REPORT_PATH, output_path: Path = DEFAULT_OUTPUT_PATH) -> None:
-    rows = json.loads(report_path.read_text(encoding="utf-8"))
+    rows = _load_rows(report_path)
 
     wb = openpyxl.Workbook()
     build_detail_sheet(wb, rows)

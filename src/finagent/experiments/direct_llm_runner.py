@@ -11,10 +11,14 @@ metrics library correctly skip retrieval/grounding metrics for this whole group
 
 from __future__ import annotations
 
+import logging
+
 from finagent.config import MAX_TOKENS_DIRECT_ANSWER, Settings
 from finagent.data.schemas import FinanceBenchQuestion, PipelineTrace, QueryComplexity
 from finagent.experiments.base import BaseExperiment
 from finagent.llm.groq_client import GroqClient
+
+logger = logging.getLogger(__name__)
 
 
 class DirectLLMExperiment(BaseExperiment):
@@ -37,6 +41,7 @@ class DirectLLMExperiment(BaseExperiment):
         self._max_tokens = max_tokens
 
     def _run_trace(self, question: FinanceBenchQuestion) -> PipelineTrace:
+        logger.info("[%s] starting question %s (%s)", self.experiment_id, question.question_id, question.company)
         trace = PipelineTrace(
             experiment_id=self.experiment_id,
             question=question,
@@ -46,13 +51,19 @@ class DirectLLMExperiment(BaseExperiment):
             # affects this experiment's pipeline in any way.
             complexity_used=question.assigned_complexity or QueryComplexity.SIMPLE,
         )
-        record = self._llm.complete(
-            agent_name=self.experiment_id,
-            system_prompt=self._system_prompt,
-            user_prompt=question.question,
-            max_tokens=self._max_tokens,
-            temperature=self._settings.temperature,
-        )
+        with trace.timed_stage("direct_llm_call"):
+            record = self._llm.complete(
+                agent_name=self.experiment_id,
+                system_prompt=self._system_prompt,
+                user_prompt=question.question,
+                max_tokens=self._max_tokens,
+                temperature=self._settings.temperature,
+            )
         trace.llm_calls.append(record)
         trace.generated_answer = record.raw_response.strip()
+        trace.mark_finished()
+        logger.info(
+            "[%s] finished question %s: %.2fs, %d tokens",
+            self.experiment_id, question.question_id, trace.total_latency_seconds, trace.total_tokens,
+        )
         return trace

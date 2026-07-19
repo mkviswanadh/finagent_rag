@@ -9,6 +9,7 @@ entry point experiment-execution scripts and the results writer both use.
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 
 from finagent.data.schemas import FinanceBenchQuestion, PipelineTrace, QuestionResult
@@ -58,11 +59,30 @@ class BaseExperiment(ABC):
         Returns:
             One `QuestionResult` per question, in the same order.
         """
+        batch_start = time.perf_counter()
         results: list[QuestionResult] = []
+        failures = 0
         for i, question in enumerate(questions, start=1):
             logger.info(
                 "[%s] running question %d/%d (%s)",
                 self.experiment_id, i, len(questions), question.question_id,
             )
-            results.append(self.run_question(question))
+            try:
+                results.append(self.run_question(question))
+            except Exception:
+                failures += 1
+                logger.exception(
+                    "[%s] question %d/%d (%s) raised an exception — skipping, continuing batch",
+                    self.experiment_id, i, len(questions), question.question_id,
+                )
+
+        elapsed = time.perf_counter() - batch_start
+        total_tokens = sum(r.trace.total_tokens for r in results)
+        total_calls = sum(len(r.trace.llm_calls) for r in results)
+        avg_latency = (sum(r.trace.total_latency_seconds for r in results) / len(results)) if results else 0.0
+        logger.info(
+            "[%s] batch complete: %d/%d succeeded in %.1fs (avg %.2fs/question, %d Groq calls, "
+            "%d tokens total)",
+            self.experiment_id, len(results), len(questions), elapsed, avg_latency, total_calls, total_tokens,
+        )
         return results

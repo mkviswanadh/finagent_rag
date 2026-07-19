@@ -13,10 +13,14 @@ __pycache__/
 .env
 .env.*
 !.env.example
+test_keys.txt
+*key*.txt
+*secret*.txt
 
 # Large / generated data — not tracked, regenerated locally
 data/pdfs/
 data/chroma_store/
+data/chroma_store_pilot/
 data/run_traces/
 data/groq_key_usage.json
 

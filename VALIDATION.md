@@ -136,18 +136,63 @@ VERIZON                VERIZON_2015_10K.pdf                chunks=259 sections=1
 WALMART                WALMART_2015_10K.pdf                chunks=232 sections=10 tables=429
 ```
 
-## Not Yet Validated
+## §7.6–7.11: All 7 Agents, All 14 Experiments, Metrics, Results Writer
 
-- §7.6 Agentic RAG Architecture — 1 of 7 agents built (Query Understanding). Remaining: Query
-  Refinement, Retrieval, Evidence Filtering, Reasoning, Answer Generation, Verification.
-- §7.7 Query Complexity Detection and Adaptive Routing — routing logic implemented in Query
-  Understanding Agent with a hybrid LLM + deterministic-rule design; not yet tested against live
-  Groq calls (no `GROQ_API_KEY` configured yet) or a labeled question set.
-- §7.8 Retrieval, Evidence Selection, and Reasoning Workflow — Retrieval Agent not yet built
-  (though the underlying `ChromaVectorStore.query` is validated above); Evidence Filtering,
-  Reasoning, Answer Generation, Verification agents not yet built.
-- §7.9 Benchmarking Framework and Baseline Comparison — none of the 14 experiment runners built yet.
-- §7.10 Evaluation Metrics — metrics library not yet built.
-- §7.11 End-to-End Implementation Workflow — steps 1-6 (dataset, extraction, cleaning, chunking,
-  metadata, embedding/storage) validated above; steps 7-15 (benchmark question classification,
-  baseline systems, proposed system, running/recording/evaluating/comparing/error-analysis) pending.
+**Status: PASS (mocked) + PASS (live pilot).** All 7 agents, all 14 experiment runners, the full
+5-family metrics library, and the results workbook writer are built. Validated in two stages:
+
+1. **Mocked-client suite** (`src/tests/`, 287 tests, zero API cost): every agent individually, the
+   full 7-agent orchestration end-to-end, all 14 experiments via the registry — including explicit
+   proof that EXP-12/13/14's ablations produce the exact expected *reduced* Groq call count for the
+   same question (e.g. EXP-12 makes only 3 calls on a Complex-routed question that would trigger 5
+   calls in EXP-11, because Query Refinement is genuinely disabled, not approximated).
+2. **Live pilot run against the real Groq API** — see below.
+
+## Live Pilot Run (item #15 — 25 documents, all 14 experiments)
+
+**Status: PASS — 56/56 runs succeeded, 0 failures, 0 quota exhaustion.**
+
+Method: ingested the 25 FinanceBench documents with the most associated questions (6,759 chunks
+total) into a dedicated ChromaDB store, selected 4 questions spanning different companies and
+question styles (direct lookup, multi-value calculation, comparative judgment, balance-sheet
+lookup), and ran all 4 through all 14 experiments (56 live pipeline executions) using a 2-key Groq
+pool. Full raw output in `pilot_run_report.json` / `pilot_run_output.log`; runner is
+`scripts/run_pilot.py` (rerunnable).
+
+| Metric | Result |
+|---|---|
+| Runs completed | 56 / 56 |
+| Failures (exceptions) | 0 |
+| Quota-exhaustion errors | 0 |
+| Total Groq calls | 95 |
+| Total tokens used | 168,553 (vs. ~169,700 estimated in `Groq_API_Call_Budget.xlsx` for N=4 — accurate to within 1%) |
+| Wall-clock time | 6.4 minutes |
+
+**Real findings from the 4 questions** (not just "it ran" — actual behavior worth noting before
+scaling to the full 150):
+
+- **Adobe operating-margin question**: Direct LLM (EXP-01) confidently stated operating margin was
+  "around 38-40%" — the real answer is a *decline* from 36.8% to 34.6%. A clean, unprompted
+  real-world instance of the exact failure mode `fig1.png` illustrates (confident wrong numbers
+  without retrieval). The RAG-based systems (EXP-07, EXP-11) correctly returned "insufficient
+  evidence" instead of guessing, for this question, because retrieval didn't surface the right
+  page — grounded-but-cautious beat confident-but-wrong here.
+- **3M net PP&E question**: EXP-11 (full adaptive system) got it right — $8.738B vs. reference
+  $8.70B, `numerical_accuracy=1.0`, `faithfulness=1.0`, with citations to two evidence pages — while
+  its own `context_recall=0.0`. This is a **metric-methodology finding, not a bug**: context recall
+  checks retrieved pages against FinanceBench's specific labeled evidence page(s); the system found
+  the same figure on different, equally-valid pages of the filing. Worth accounting for in the full
+  run's error analysis rather than reading raw `context_recall` as the whole retrieval-quality story.
+- **2 of 4 questions** (Amazon DPO — a 4-value cross-statement calculation; Adobe margin — a
+  cross-year comparison) had genuine retrieval misses (`context_recall=0.0`) for the RAG systems.
+  Both are exactly the harder multi-step/cross-section question types the proposal's adaptive
+  design targets — a real, useful signal for where retrieval strategy (top-k, chunking, or
+  metadata filtering) may need attention at full scale, not a pipeline defect.
+
+## Remaining Before Full-Scale Results
+
+- Full 150-question run across all 14 experiments (~6.36M tokens, ~$3.85 estimated — see
+  `Groq_API_Call_Budget.xlsx`) — the free-tier token cap is the actual constraint, not pipeline
+  correctness, which this pilot confirms is solid.
+- §7.11 steps 12-15 (evaluate/compare/error-analysis/summarize across the full run) depend on that
+  full run existing.

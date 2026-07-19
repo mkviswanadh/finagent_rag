@@ -111,6 +111,13 @@ _RAG_PIPELINE_CONFIGS: dict[str, PipelineConfig] = {
 
 ALL_EXPERIMENT_IDS = [f"EXP-{i:02d}" for i in range(1, 15)]
 
+EXPERIMENT_NAMES: dict[str, str] = {
+    **{exp_id: name for exp_id, (name, _) in _DIRECT_LLM_DEFINITIONS.items()},
+    **{exp_id: config.experiment_name for exp_id, config in _RAG_PIPELINE_CONFIGS.items()},
+}
+"""exp_id -> display name, for callers (e.g. `results.analyst`) that need experiment names without
+constructing a full runner instance."""
+
 
 def list_experiment_ids() -> list[str]:
     """Return all 14 experiment IDs in canonical order (EXP-01..EXP-14)."""

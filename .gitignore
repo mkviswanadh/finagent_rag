@@ -1,0 +1,25 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Large / generated data — not tracked, regenerated locally
+data/pdfs/
+data/chroma_store/
+data/run_traces/
+
+# Editor/OS
+.vscode/
+.DS_Store
+Thumbs.db

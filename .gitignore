@@ -33,6 +33,10 @@ Pilot_Results_Draft.xlsx
 # documents, not code — kept local rather than published
 Coding_Sheet.xlsx
 Coding_Sheet_RESULTS.xlsx
+Groq_API_Call_Budget.xlsx
+
+# Internal project instructions for Claude Code — not relevant to end users of the repo
+CLAUDE.md
 
 # Upstream FinanceBench notebook, not part of this implementation
 notebooks_evaluation_playground_upstream.ipynb

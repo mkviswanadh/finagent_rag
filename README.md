@@ -161,8 +161,8 @@ bug (FinanceBench's labeled page numbers don't always align with raw PDF page in
 ongoing investigation into unfiltered-retrieval quality once the corpus spans many companies. See
 [`VALIDATION.md`](VALIDATION.md) for the full validation log and pilot findings.
 
-The full 150-question run across all 14 experiments is gated on Groq free-tier daily token budget
-(paced across multiple keys/days rather than a single run) — see `Groq_API_Call_Budget.xlsx`.
+The full 150-question run across all 14 experiments is gated on Groq free-tier daily token budget,
+paced across multiple keys/days rather than a single run.
 
 ## Dataset
 

@@ -3,10 +3,16 @@ the full 150-question run.
 
 Scope, deliberately budget-conscious (Groq free tier, see CLAUDE.md "Requirement Deviations" and
 Groq_API_Call_Budget.xlsx):
-- Ingests the 25 FinanceBench documents with the most associated questions (realistic multi-document
-  retrieval corpus — not a single trivially-easy document).
+- Ingests a STRATIFIED sample of 25 FinanceBench documents (`experiments.sampling`) — diversified
+  across company, GICS sector, and multi-year coverage of a bounded number of companies (so EXP-08's
+  metadata filtering has real same-company-different-year ambiguity to resolve), not just "the 25
+  documents with the most questions," which skewed toward a handful of over-represented companies.
 - Runs a small, deliberately-diverse set of questions from among those 25 documents through ALL 14
-  experiments, to catch integration bugs the mocked test suite can't (real JSON reliability, real
+  experiments, stratified across estimated complexity tier, multi-evidence need, and FinanceBench's
+  own question-construction category — so this pilot has a real chance of exercising the pathways
+  `Coding_Sheet.xlsx`'s result sheets are structured around (query rewriting, metadata
+  disambiguation, all 3 complexity tiers), not just whichever questions happened to be easiest to
+  find. This catches integration bugs the mocked test suite can't (real JSON reliability, real
   ChromaDB retrieval quality, real latency) — breadth (every experiment) over depth (many questions),
   since the mocked suite already covers pipeline logic exhaustively.
 - Records full traces (including retrieved evidence, query variants, and per-stage timing — not just
@@ -26,7 +32,6 @@ import json
 import logging
 import sys
 import time
-from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -37,57 +42,40 @@ from finagent.document_processing.metadata import FilingMetadata
 from finagent.document_processing.pipeline import DocumentProcessingPipeline
 from finagent.document_processing.vector_store import ChromaVectorStore
 from finagent.experiments.registry import get_experiment, list_experiment_ids
+from finagent.experiments.sampling import (
+    select_diversified_documents,
+    select_diversified_questions,
+    summarize_sample,
+)
 from finagent.llm.groq_client import GroqCallError, GroqClient
 from finagent.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 
 NUM_DOCUMENTS = 25
+# 5, not more: N=4 already used ~170K of the combined 2-key ~180K/day free-tier budget (see
+# Groq_API_Call_Budget.xlsx); N=5 (~212K estimated) is a deliberate small overshoot for slightly
+# better stratification coverage, accepting a real chance of a few GROQ_ERROR rows near the end of
+# the run if actual usage tracks the estimate — run_batch already tolerates and logs individual
+# failures without aborting the batch, so this degrades gracefully rather than losing the run.
+NUM_QUESTIONS = 5
 PILOT_CHROMA_DIR = PROJECT_ROOT / "data" / "chroma_store_pilot"
 PILOT_REPORT_PATH = PROJECT_ROOT / "pilot_run_report.json"
 PILOT_LOG_PATH = PROJECT_ROOT / "pilot_run.log"
 
 
 def select_documents_and_questions() -> tuple[list[str], list]:
+    """Stratified pilot sample — see `experiments.sampling` for the full selection rationale."""
     questions = load_financebench_questions()
-    doc_counts = Counter(q.document_name for q in questions)
-    top_docs = [d for d, _ in doc_counts.most_common(NUM_DOCUMENTS)]
-    top_docs_set = set(top_docs)
+    doc_info = load_document_info()
 
-    candidates = [q for q in questions if q.document_name in top_docs_set]
+    doc_names = select_diversified_documents(doc_info, questions, num_documents=NUM_DOCUMENTS)
+    pilot_questions = select_diversified_questions(
+        questions, num_questions=NUM_QUESTIONS, allowed_documents=set(doc_names)
+    )
 
-    # Pick a small, deliberately diverse set: different companies, and a mix of question phrasing
-    # that should route to different complexity tiers (plain lookup vs. comparison vs. "why"/"explain").
-    picked = []
-    seen_companies = set()
-    complex_keywords = ("why", "explain", "factors", "drove", "driving")
-    moderate_keywords = ("compare", "change", "increase", "decrease", "grow")
-
-    def bucket(q) -> str:
-        text = q.question.lower()
-        if any(k in text for k in complex_keywords):
-            return "complex"
-        if any(k in text for k in moderate_keywords):
-            return "moderate"
-        return "simple"
-
-    buckets: dict[str, list] = {"simple": [], "moderate": [], "complex": []}
-    for q in candidates:
-        buckets[bucket(q)].append(q)
-
-    # One from each bucket if available, plus one more from whichever bucket has the most options,
-    # for a target of 4 questions spanning different companies and (hoped-for) complexity tiers.
-    for bucket_name in ("simple", "moderate", "complex"):
-        for q in buckets[bucket_name]:
-            if q.company not in seen_companies:
-                picked.append(q)
-                seen_companies.add(q.company)
-                break
-    remaining_pool = [q for q in candidates if q not in picked]
-    if remaining_pool:
-        picked.append(remaining_pool[0])
-
-    return top_docs, picked[:4]
+    logger.info("Sample diversity summary: %s", summarize_sample(pilot_questions))
+    return doc_names, pilot_questions
 
 
 def ingest_pilot_documents(doc_names: list[str]) -> ChromaVectorStore:

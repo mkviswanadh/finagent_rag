@@ -13,10 +13,13 @@ LLM call.
 
 from __future__ import annotations
 
+import logging
 from difflib import SequenceMatcher
 
 from finagent.config import RETRIEVAL_TOP_K
 from finagent.data.schemas import EvidenceItem
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MIN_RELEVANCE = 0.25
 DEFAULT_DEDUP_SIMILARITY_THRESHOLD = 0.92
@@ -64,7 +67,12 @@ class EvidenceFilteringAgent:
                 continue
             deduped.append(candidate)
 
-        return deduped[:max_items]
+        result = deduped[:max_items]
+        logger.info(
+            "Evidence Filtering: %d retrieved -> %d survive (relevance>=%.2f, dedup>=%.2f, cap=%d)",
+            len(evidence), len(result), min_relevance, dedup_similarity_threshold, max_items,
+        )
+        return result
 
     @staticmethod
     def _text_similarity(a: str, b: str) -> float:

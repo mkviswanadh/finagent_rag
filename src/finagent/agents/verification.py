@@ -12,10 +12,14 @@ Guidance Sheet, EXP-14 "Expected Understanding").
 
 from __future__ import annotations
 
+import logging
+
 from finagent.agents.prompt_helpers import format_evidence_block
 from finagent.config import MAX_TOKENS_VERIFICATION, Settings
 from finagent.data.schemas import EvidenceItem, LLMCallRecord, VerificationResult
 from finagent.llm.groq_client import GroqClient
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """You are the Verification Agent inside an adaptive multi-agent financial \
 question-answering system. You receive a generated answer and the evidence chunks it was supposed \
@@ -78,6 +82,7 @@ class VerificationAgent:
         parsed = record.parsed_output
 
         if parsed is None:
+            logger.warning("Verification: unparseable response, failing closed (passed=False)")
             return (
                 VerificationResult(
                     passed=False,
@@ -93,5 +98,10 @@ class VerificationAgent:
             unsupported_claims=[str(c) for c in parsed.get("unsupported_claims", [])],
             confidence=float(parsed.get("confidence", 0.0) or 0.0),
             notes=str(parsed.get("notes", "")).strip(),
+        )
+        logger.info(
+            "Verification: passed=%s (%d unsupported claims, confidence=%.2f) in %.2fs, %d tokens",
+            result.passed, len(result.unsupported_claims), result.confidence,
+            record.latency_seconds, record.total_tokens,
         )
         return result, record

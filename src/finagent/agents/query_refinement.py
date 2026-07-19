@@ -15,9 +15,14 @@ one is needed, per the finagent-architecture skill §0 call-efficiency standard.
 
 from __future__ import annotations
 
+import logging
+
+from finagent.agents.prompt_helpers import truncate_for_log
 from finagent.config import MAX_TOKENS_MULTI_QUERY, MAX_TOKENS_REWRITE, MULTI_QUERY_VARIANT_COUNT, Settings
 from finagent.data.schemas import LLMCallRecord, QueryAnalysis
 from finagent.llm.groq_client import GroqClient
+
+logger = logging.getLogger(__name__)
 
 _REFINE_SYSTEM_PROMPT = """You are the Query Refinement Agent inside an adaptive multi-agent \
 financial question-answering system. You receive a user's financial question, plus signals about \
@@ -83,6 +88,11 @@ class QueryRefinementAgent:
         )
         rewritten = record.raw_response.strip().strip('"')
         record.parsed_output = rewritten or question
+        logger.info(
+            "Query Refinement: rewrote %r -> %r in %.2fs, %d tokens",
+            truncate_for_log(question), truncate_for_log(rewritten or question),
+            record.latency_seconds, record.total_tokens,
+        )
         return (rewritten or question), record
 
     def expand_multi_query(
@@ -118,4 +128,8 @@ class QueryRefinementAgent:
             variants = [str(v) for v in variants][:n]
             while len(variants) < n:
                 variants.append(question)
+        logger.info(
+            "Query Refinement: expanded %r into %d variants in %.2fs, %d tokens",
+            truncate_for_log(question), len(variants), record.latency_seconds, record.total_tokens,
+        )
         return variants, record

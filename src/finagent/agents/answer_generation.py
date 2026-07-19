@@ -15,7 +15,11 @@ flagged `insufficient_evidence` — in that case no fabricated grounded answer i
 
 from __future__ import annotations
 
+import logging
+
 from finagent.data.schemas import EvidenceItem, ReasoningOutput
+
+logger = logging.getLogger(__name__)
 
 _INSUFFICIENT_EVIDENCE_MESSAGE = (
     "The retrieved evidence does not contain enough information to answer this question "
@@ -48,15 +52,19 @@ class AnswerGenerationAgent:
             fixed "insufficient evidence" message is returned instead of fabricating a claim.
         """
         if reasoning_output.insufficient_evidence or not reasoning_output.draft_answer:
+            logger.info("Answer Generation: insufficient evidence, returning fallback message")
             return _INSUFFICIENT_EVIDENCE_MESSAGE
 
         if not include_citations or not reasoning_output.citations:
+            logger.info("Answer Generation: finalized answer without citations")
             return reasoning_output.draft_answer
 
         citation_footer = self._build_citation_footer(reasoning_output.citations, evidence)
         if not citation_footer:
+            logger.info("Answer Generation: finalized answer (no citations resolved)")
             return reasoning_output.draft_answer
 
+        logger.info("Answer Generation: finalized answer with %d citations", len(reasoning_output.citations))
         return f"{reasoning_output.draft_answer}\n\nSources: {citation_footer}"
 
     @staticmethod

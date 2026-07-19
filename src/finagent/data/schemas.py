@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Iterator
 
 
 class QueryComplexity(str, Enum):
@@ -258,11 +259,31 @@ class PipelineTrace:
     reasoning_output: ReasoningOutput | None = None
     generated_answer: str = ""
     verification_result: VerificationResult | None = None
+    stage_timings: dict[str, float] = field(default_factory=dict)
+    """Wall-clock seconds spent in each named pipeline stage (e.g. "query_understanding",
+    "retrieval", "reasoning") — populated via `timed_stage`. Distinct from `llm_calls[*].latency_seconds`,
+    which times only the Groq round-trip; a stage's timing also covers any local work around that
+    call (e.g. building a metadata filter, merging multi-query results)."""
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
 
     def mark_finished(self) -> None:
         self.finished_at = time.time()
+
+    @contextmanager
+    def timed_stage(self, stage_name: str) -> Iterator[None]:
+        """Record wall-clock time spent in a named stage into `stage_timings`.
+
+        Usage: `with trace.timed_stage("retrieval"): evidence = retrieval_agent.retrieve(...)`.
+        If the same stage name is used more than once in one trace (e.g. a stage that runs
+        conditionally in a loop), the durations accumulate rather than overwrite.
+        """
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - start
+            self.stage_timings[stage_name] = self.stage_timings.get(stage_name, 0.0) + elapsed
 
     @property
     def total_latency_seconds(self) -> float:

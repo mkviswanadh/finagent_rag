@@ -12,6 +12,7 @@ Each `PipelineConfig` instance corresponds to exactly one experiment's pipeline 
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
@@ -34,6 +35,8 @@ from finagent.data.schemas import (
 from finagent.document_processing.vector_store import ChromaVectorStore
 from finagent.experiments.base import BaseExperiment
 from finagent.llm.groq_client import GroqClient
+
+logger = logging.getLogger(__name__)
 
 # A neutral placeholder used only for experiments that skip Query Understanding entirely (EXP-07,
 # EXP-09, EXP-10 per their Coding_Sheet pipeline strings — none of them extract entities or route
@@ -112,9 +115,15 @@ class AdaptiveRAGPipeline(BaseExperiment):
         self._verification = VerificationAgent(llm_client, self._settings)
 
     def _run_trace(self, question: FinanceBenchQuestion) -> PipelineTrace:
+        logger.info(
+            "[%s] starting question %s (%s)", self.experiment_id, question.question_id, question.company
+        )
         qu_result: tuple[QueryAnalysis, LLMCallRecord] | None = None
+        qu_elapsed = 0.0
         if self._config.use_query_understanding:
+            qu_start = time.perf_counter()
             qu_result = self._query_understanding.analyze(question.question)
+            qu_elapsed = time.perf_counter() - qu_start
         analysis = qu_result[0] if qu_result else None
 
         trace = PipelineTrace(
@@ -126,8 +135,10 @@ class AdaptiveRAGPipeline(BaseExperiment):
         if qu_result is not None:
             trace.llm_calls.append(qu_result[1])
             trace.query_analysis = analysis
+            trace.stage_timings["query_understanding"] = qu_elapsed
 
-        queries, refined_query = self._prepare_queries(question.question, analysis, trace)
+        with trace.timed_stage("query_preparation"):
+            queries, refined_query = self._prepare_queries(question.question, analysis, trace)
         trace.query_variants = queries
         trace.refined_query = refined_query
 
@@ -135,37 +146,50 @@ class AdaptiveRAGPipeline(BaseExperiment):
         if self._config.retrieval_strategy in ("metadata", "adaptive") and analysis is not None:
             metadata_filter = self._retrieval.build_metadata_filter(analysis)
 
-        retrieved: list[EvidenceItem]
-        if len(queries) > 1:
-            retrieved = self._retrieval.retrieve_multi(
-                queries, top_k_per_query=self._config.top_k, metadata_filter=metadata_filter
-            )
-        else:
-            retrieved = self._retrieval.retrieve(
-                queries[0], top_k=self._config.top_k, metadata_filter=metadata_filter
-            )
+        with trace.timed_stage("retrieval"):
+            retrieved: list[EvidenceItem]
+            if len(queries) > 1:
+                retrieved = self._retrieval.retrieve_multi(
+                    queries, top_k_per_query=self._config.top_k, metadata_filter=metadata_filter
+                )
+            else:
+                retrieved = self._retrieval.retrieve(
+                    queries[0], top_k=self._config.top_k, metadata_filter=metadata_filter
+                )
         trace.retrieved_evidence = retrieved
 
-        if self._config.enable_evidence_filtering:
-            filtered = self._evidence_filtering.filter(retrieved, max_items=self._config.top_k)
-        else:
-            filtered = retrieved
+        with trace.timed_stage("evidence_filtering"):
+            if self._config.enable_evidence_filtering:
+                filtered = self._evidence_filtering.filter(retrieved, max_items=self._config.top_k)
+            else:
+                filtered = retrieved
         trace.filtered_evidence = filtered
 
-        reasoning_output, reasoning_call = self._reasoning.reason(question.question, filtered, analysis)
+        with trace.timed_stage("reasoning"):
+            reasoning_output, reasoning_call = self._reasoning.reason(question.question, filtered, analysis)
         trace.llm_calls.append(reasoning_call)
         trace.reasoning_output = reasoning_output
 
-        answer = self._answer_generation.generate(reasoning_output, filtered)
+        with trace.timed_stage("answer_generation"):
+            answer = self._answer_generation.generate(reasoning_output, filtered)
 
         if self._config.enable_verification and not reasoning_output.insufficient_evidence:
-            verification_result, verification_call = self._verification.verify(
-                question.question, answer, filtered
-            )
+            with trace.timed_stage("verification"):
+                verification_result, verification_call = self._verification.verify(
+                    question.question, answer, filtered
+                )
             trace.llm_calls.append(verification_call)
             trace.verification_result = verification_result
 
         trace.generated_answer = answer
+        trace.mark_finished()
+        logger.info(
+            "[%s] finished question %s: complexity=%s, %d calls, %d tokens, %.2fs total "
+            "(stages: %s)",
+            self.experiment_id, question.question_id, trace.complexity_used.value,
+            len(trace.llm_calls), trace.total_tokens, trace.total_latency_seconds,
+            {k: round(v, 2) for k, v in trace.stage_timings.items()},
+        )
         return trace
 
     def _prepare_queries(

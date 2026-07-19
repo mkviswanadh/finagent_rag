@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from finagent.data.schemas import Chunk, EvidenceItem, EvidenceReference, FinanceBenchQuestion
-from finagent.metrics.retrieval_metrics import context_precision, context_recall, hit_at_k, mean_reciprocal_rank
+from finagent.metrics.retrieval_metrics import (
+    context_precision,
+    context_recall,
+    hit_at_k,
+    matches_evidence_reference,
+    mean_reciprocal_rank,
+)
 
 
 def _question(evidence_pages: list[int]) -> FinanceBenchQuestion:
@@ -88,3 +94,78 @@ class TestMeanReciprocalRank:
         question = _question([20])
         retrieved = [_evidence(999)]
         assert mean_reciprocal_rank(retrieved, question) == 0.0
+
+
+class TestMatchesEvidenceReference:
+    """Regression coverage for the page-offset finding: FinanceBench's evidence_page_num does not
+    reliably align with this codebase's raw PDF page index (verified up to a 16-page offset on a
+    real pilot document) — a chunk with the right content but a "wrong" page number must still
+    count as a match if it shares the evidence excerpt's own distinctive numbers."""
+
+    def _chunk(self, *, page: int, text: str, doc_name: str = "3M_2018_10K") -> Chunk:
+        return Chunk(
+            chunk_id="C1", company="3M", year=2018, report_type="10-K", section="S",
+            page_number=page, text=text, source_document=f"{doc_name}.pdf",
+        )
+
+    def _ref(self, *, page: int, text: str, doc_name: str = "3M_2018_10K") -> EvidenceReference:
+        return EvidenceReference(doc_name=doc_name, page_number=page, text=text)
+
+    def test_exact_page_match_is_sufficient(self):
+        chunk = self._chunk(page=41, text="totally different wording with no shared numbers")
+        ref = self._ref(page=41, text="net property, plant and equipment totaled $8.7 billion")
+        assert matches_evidence_reference(chunk, ref) is True
+
+    def test_number_overlap_matches_despite_page_mismatch(self):
+        """The real case found in the pilot: FinanceBench says page 57, the actual content
+        (matched by its distinctive numbers) is on raw PDF page 41."""
+        chunk = self._chunk(
+            page=41, text="net property, plant and equipment totaled $8.738 billion, up from $8.169 billion"
+        )
+        ref = self._ref(
+            page=57, text="Property, plant and equipment - net was $8.738 billion in 2018 vs $8.169 billion in 2017"
+        )
+        assert matches_evidence_reference(chunk, ref) is True
+
+    def test_wrong_document_never_matches_even_with_shared_numbers(self):
+        chunk = self._chunk(page=57, text="revenue of $8.738 billion", doc_name="OTHER_COMPANY_2018_10K")
+        ref = self._ref(page=57, text="revenue of $8.738 billion")
+        assert matches_evidence_reference(chunk, ref) is False
+
+    def test_single_shared_number_is_not_enough(self):
+        """One coincidentally-shared number (e.g. a year) shouldn't count as a real content match."""
+        chunk = self._chunk(page=10, text="In 2018 the company opened 12 new stores.")
+        ref = self._ref(page=57, text="In 2018, net property, plant and equipment totaled $8.7 billion.")
+        assert matches_evidence_reference(chunk, ref) is False
+
+    def test_no_numbers_in_evidence_text_falls_back_to_page_only(self):
+        chunk = self._chunk(page=10, text="qualitative narrative with no numbers")
+        ref = self._ref(page=57, text="qualitative discussion with no numbers either")
+        assert matches_evidence_reference(chunk, ref) is False
+
+    def test_shared_years_and_day_numbers_alone_do_not_match(self):
+        """Regression test for a real false positive found during pilot debugging: a chunk about
+        share repurchases matched a capex evidence excerpt purely because both mentioned
+        "December 31, 2018" (shared {2018, 2017, 3, 31}) despite having no real content overlap."""
+        chunk = self._chunk(
+            page=43,
+            text="cash availability in the United States as of December 31, 2018 and 2017, 3 sources",
+        )
+        ref = self._ref(
+            page=59,
+            text="Consolidated Statement of Cash Flows, Years ended December 31, 2018 2017 2016",
+        )
+        assert matches_evidence_reference(chunk, ref) is False
+
+    def test_distinctive_dollar_figures_still_match_despite_shared_years(self):
+        """The genuine positive from the same real case: the chunk that actually contains the
+        answer figure ($1,577 million capex) still matches, years present in both notwithstanding."""
+        chunk = self._chunk(
+            page=39,
+            text="Capital Spending as of December 31, 2018 2017: United States 994 852, Total 1577 1373",
+        )
+        ref = self._ref(
+            page=59,
+            text="Consolidated Statement of Cash Flows, December 31, 2018 2017, capital expenditures 1577",
+        )
+        assert matches_evidence_reference(chunk, ref) is True

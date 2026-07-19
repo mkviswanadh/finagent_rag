@@ -189,6 +189,82 @@ scaling to the full 150):
   design targets — a real, useful signal for where retrieval strategy (top-k, chunking, or
   metadata filtering) may need attention at full scale, not a pipeline defect.
 
+### Aggregate diagnostic (from `Pilot_Results_Draft.xlsx`, exported via `scripts/export_pilot_results.py`)
+
+Averaging all 4 questions per experiment surfaces a clearer, more concerning pattern than the
+per-question anecdotes above: **EXP-07, EXP-09, EXP-10, EXP-12, and EXP-14 returned the fixed
+"insufficient evidence" fallback on all 4 of 4 pilot questions** (their averaged Answer Relevance/
+F1/Semantic Similarity are numerically identical — 0.0629 / 0.0263 / 0.0165 — which only happens if
+every underlying answer was the exact same fallback string). Only EXP-08 (metadata-aware), EXP-11
+(full adaptive), and EXP-13 (adaptive without evidence filtering) found any usable evidence at all,
+and even they succeeded on only 1 of 4 questions.
+
+**Working hypothesis, not yet confirmed**: unfiltered semantic search (`retrieval_strategy="naive"`,
+used by EXP-07/09/10) struggles once the corpus holds 25 *different companies'* filings (6,759
+chunks) — a chunk from the wrong company can be more textually similar to a question's surface
+phrasing than the right company's actual chunk, and nothing in the naive path constrains retrieval
+to the right filing. Company/year metadata filtering (EXP-08, and the adaptive strategy's routing
+in EXP-11/13) is what rescues retrieval when it engages. EXP-12 and EXP-14 also use the "adaptive"
+strategy with the same metadata-filtering code path as EXP-11/13, yet showed the *naive* failure
+pattern instead — with only 4 questions and live (not perfectly deterministic even at
+temperature=0.0) LLM sampling behind each experiment's own independent Query Understanding call,
+this could be routing-decision variance across nominally-similar runs rather than a real
+per-experiment difference. **This needs the full 150-question run (or a larger pilot) to
+distinguish signal from 4-question noise** — it is the single most important thing to watch when
+scaling up, and likely the highest-leverage area for improvement: metadata-aware/filtered
+retrieval, not the reasoning/verification/answer-generation stages, which perform correctly *when
+given the right evidence* (see the 3M net PP&E success above: `numerical_accuracy=1.0`,
+`faithfulness=1.0`).
+
+Full per-run detail — every generated answer, every metric, explicitly distinguishing "not
+applicable" (blank) from "computed as zero" — is in `Pilot_Results_Draft.xlsx` (sheets: `Detail`,
+`Experiment Summary`, `Metric Coverage Diagnostic`). This is a draft/diagnostic export, kept
+separate from `Coding_Sheet_RESULTS.xlsx`, which is reserved for the full 150-question run.
+
+### Root-cause follow-up: a real metrics bug, found and fixed entirely without spending Groq tokens
+
+Retrieval and evidence-filtering are pure local operations (ChromaDB + `sentence-transformers`) —
+they cost zero Groq calls, so once both keys' daily budgets were exhausted, the pilot's near-zero
+`context_recall` finding could still be investigated directly against the already-populated pilot
+ChromaDB store. This surfaced the actual root cause:
+
+**`FinanceBenchQuestion.evidence[*].page_number` does not reliably align with the raw sequential
+page index this codebase's PDF extraction produces**, and the offset is not a constant — verified
+directly on two pilot documents: 3M's 2018 10-K (FinanceBench claims page 57 for a PP&E figure that
+is actually on raw PDF page 41 — a 16-page offset) and Adobe's 2022 10-K (FinanceBench claims page
+53 for an income statement actually on raw PDF page 54 — a 1-page offset). Every metric that
+compared `chunk.page_number == evidence.page_number` exactly (`context_recall`, `context_precision`,
+`hit_at_k`, `mrr`, `citation_correctness`, `evidence_coverage`) was silently under-counting correct
+retrievals across the whole dataset, not just this pilot.
+
+**Fix** (`metrics/retrieval_metrics.py`, `metrics/grounding.py`): added
+`matches_evidence_reference()`, which falls back to checking whether a candidate chunk shares
+enough of the evidence excerpt's own *distinctive* numeric values when the page number doesn't
+match. First calibration attempt was itself a false-positive trap — raw number overlap matched a
+chunk about share repurchases to a capex question purely because both mentioned "December 31, 2018"
+— fixed by excluding calendar years and small integers (≤31, i.e. day-of-month/footnote-index
+range) from the "distinctive" set, verified against the exact real false positive found. 5 new
+regression tests lock in both the fix and the false-positive rejection.
+
+**Re-scored the same 4 pilot questions offline** (re-running only the free retrieval step against
+the pilot ChromaDB store, not the full paid pipeline) with the corrected matching:
+
+| Question | Old (page-only) recall | New (calibrated) recall |
+|---|---|---|
+| 3M FY2018 capex | 0.0 | **1.0** — was a pure metric artifact |
+| 3M FY2018 net PP&E | 0.0 | **1.0** — was a pure metric artifact |
+| Adobe FY2022 operating margin | 0.0 | 0.0 — genuine retrieval miss |
+| Amazon FY2017 DPO (2 evidence pages) | 0.0 | 0.5 — one of two pages genuinely missed |
+
+This is a much more credible picture than the pilot's raw output suggested: half of the apparent
+retrieval failures were a measurement bug (now fixed for all future runs, pilot or full-scale),
+and half are genuine gaps worth investigating (Adobe's specific evidence page never appeared in the
+top-5 even with correct company+year filtering; Amazon's multi-page evidence was only half-covered).
+The originally-generated `pilot_run_report.json` / `Pilot_Results_Draft.xlsx` numbers themselves are
+**not** retroactively corrected (the live run didn't persist raw retrieval traces, only final
+metrics — logging/tracing improvements now underway address this gap for future runs) — treat this
+table as the corrected read, not the exported files.
+
 ## Remaining Before Full-Scale Results
 
 - Full 150-question run across all 14 experiments (~6.36M tokens, ~$3.85 estimated — see

@@ -10,11 +10,15 @@ agent shows the ceiling case of that (zero, by design, not by optimization).
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from finagent.config import RETRIEVAL_TOP_K
 from finagent.data.schemas import EvidenceItem, QueryAnalysis
 from finagent.document_processing.vector_store import ChromaVectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class RetrievalAgent:
@@ -43,7 +47,13 @@ class RetrievalAgent:
         Returns:
             Evidence items ordered by descending relevance.
         """
-        return self._vector_store.query(query, top_k=top_k, metadata_filter=metadata_filter)
+        start = time.perf_counter()
+        results = self._vector_store.query(query, top_k=top_k, metadata_filter=metadata_filter)
+        logger.info(
+            "Retrieval: %d chunks for %r (filter=%s) in %.3fs",
+            len(results), query[:60], metadata_filter, time.perf_counter() - start,
+        )
+        return results
 
     def retrieve_multi(
         self,
@@ -75,7 +85,11 @@ class RetrievalAgent:
                 if existing is None or item.relevance_score > existing.relevance_score:
                     best_by_chunk_id[item.chunk.chunk_id] = item
 
-        return sorted(best_by_chunk_id.values(), key=lambda e: e.relevance_score, reverse=True)
+        merged = sorted(best_by_chunk_id.values(), key=lambda e: e.relevance_score, reverse=True)
+        logger.info(
+            "Retrieval: merged %d query variants -> %d unique chunks", len(queries), len(merged)
+        )
+        return merged
 
     @staticmethod
     def build_metadata_filter(query_analysis: QueryAnalysis) -> dict[str, Any] | None:

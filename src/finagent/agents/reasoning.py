@@ -12,10 +12,14 @@ draft into the returned answer without a further Groq call — see its module do
 
 from __future__ import annotations
 
+import logging
+
 from finagent.agents.prompt_helpers import format_evidence_block
 from finagent.config import MAX_TOKENS_REASONING, Settings
 from finagent.data.schemas import EvidenceItem, LLMCallRecord, QueryAnalysis, ReasoningOutput
 from finagent.llm.groq_client import GroqClient
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """You are the Reasoning Agent inside an adaptive multi-agent financial \
 question-answering system. You receive a financial question and a set of evidence chunks retrieved \
@@ -92,6 +96,7 @@ class ReasoningAgent:
             f"Question: {question}{hint}\n\n"
             f"Evidence:\n{format_evidence_block(evidence)}"
         )
+        logger.info("Reasoning: reasoning over %d evidence chunks", len(evidence))
         record = self._llm.complete_json(
             agent_name="reasoning",
             system_prompt=_SYSTEM_PROMPT,
@@ -102,6 +107,7 @@ class ReasoningAgent:
         parsed = record.parsed_output
 
         if parsed is None:
+            logger.warning("Reasoning: unparseable response, returning insufficient_evidence fallback")
             return (
                 ReasoningOutput(
                     reasoning_steps=["Reasoning Agent returned an unparseable response."],
@@ -124,5 +130,9 @@ class ReasoningAgent:
             draft_answer=str(parsed.get("draft_answer", "")).strip(),
             citations=citations,
             insufficient_evidence=bool(parsed.get("insufficient_evidence", False)),
+        )
+        logger.info(
+            "Reasoning: drafted answer (insufficient_evidence=%s, %d citations) in %.2fs, %d tokens",
+            output.insufficient_evidence, len(output.citations), record.latency_seconds, record.total_tokens,
         )
         return output, record

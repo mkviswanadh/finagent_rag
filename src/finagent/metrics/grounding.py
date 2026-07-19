@@ -10,7 +10,11 @@ enumerate discrete claims individually — documented as an approximation, not e
 
 Evidence Coverage and Citation Correctness are computed with zero Groq calls, purely by
 cross-referencing `ReasoningOutput.citations` against the evidence list and the FinanceBench
-ground-truth evidence pages (same mechanism as `retrieval_metrics.py`).
+ground-truth evidence — via `retrieval_metrics.matches_evidence_reference`, the same page-match
+plus number-overlap check `retrieval_metrics.py` uses, and for the same reason: FinanceBench's
+`evidence_page_num` does not reliably align with this codebase's raw PDF page index (verified
+offset of up to 16 pages on one pilot document — see `retrieval_metrics.py` module docstring for
+the full explanation), so exact page equality alone under-counts correct citations.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from __future__ import annotations
 import re
 
 from finagent.data.schemas import EvidenceItem, FinanceBenchQuestion, VerificationResult
+from finagent.metrics.retrieval_metrics import matches_evidence_reference
 
 _SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+")
 
@@ -63,29 +68,29 @@ def hallucination_rate(verification_result: VerificationResult, generated_answer
 
 
 def evidence_coverage(citations: list[str], evidence: list[EvidenceItem], question: FinanceBenchQuestion) -> float:
-    """Evidence Coverage: fraction of ground-truth evidence pages actually cited in the answer.
+    """Evidence Coverage: fraction of the question's annotated evidence excerpts actually cited.
 
-    Formula (Proposal Table 7.15): `Evidence Points Used / Total Relevant Evidence Points` — a
-    ground-truth evidence page counts as "used" if a cited evidence chunk (by ID, resolved via
-    `evidence`) is from that page.
+    Formula (Proposal Table 7.15): `Evidence Points Used / Total Relevant Evidence Points` — an
+    annotated evidence excerpt counts as "used" if some cited evidence chunk (by ID, resolved via
+    `evidence`) matches it (see `retrieval_metrics.matches_evidence_reference`).
 
     Args:
         citations: Evidence IDs the Reasoning Agent cited (`ReasoningOutput.citations`).
         evidence: The evidence list the citation IDs index into.
-        question: The FinanceBench question, providing ground-truth evidence pages.
+        question: The FinanceBench question, providing the annotated evidence to match against.
 
     Returns:
-        Coverage in `[0, 1]`. `0.0` if the question has no annotated evidence pages.
+        Coverage in `[0, 1]`. `0.0` if the question has no annotated evidence.
     """
-    ground_truth_pages = set(question.evidence_page_numbers)
-    if not ground_truth_pages:
+    if not question.evidence:
         return 0.0
 
     evidence_by_id = {e.evidence_id: e for e in evidence}
-    cited_pages = {
-        evidence_by_id[cid].chunk.page_number for cid in citations if cid in evidence_by_id
-    }
-    return len(ground_truth_pages & cited_pages) / len(ground_truth_pages)
+    cited_chunks = [evidence_by_id[cid].chunk for cid in citations if cid in evidence_by_id]
+    covered = sum(
+        1 for ref in question.evidence if any(matches_evidence_reference(chunk, ref) for chunk in cited_chunks)
+    )
+    return covered / len(question.evidence)
 
 
 def citation_correctness(citations: list[str], evidence: list[EvidenceItem], question: FinanceBenchQuestion) -> float:
@@ -96,7 +101,7 @@ def citation_correctness(citations: list[str], evidence: list[EvidenceItem], que
     Args:
         citations: Evidence IDs the Reasoning Agent cited.
         evidence: The evidence list the citation IDs index into.
-        question: The FinanceBench question, providing ground-truth evidence pages/documents.
+        question: The FinanceBench question, providing the annotated evidence to match against.
 
     Returns:
         Correctness in `[0, 1]`. `0.0` if there are no citations to evaluate.
@@ -110,9 +115,6 @@ def citation_correctness(citations: list[str], evidence: list[EvidenceItem], que
         item = evidence_by_id.get(cid)
         if item is None:
             continue
-        if any(
-            item.chunk.source_document.startswith(ref.doc_name) and item.chunk.page_number == ref.page_number
-            for ref in question.evidence
-        ):
+        if any(matches_evidence_reference(item.chunk, ref) for ref in question.evidence):
             correct += 1
     return correct / len(citations)

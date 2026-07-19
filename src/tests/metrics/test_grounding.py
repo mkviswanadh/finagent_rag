@@ -44,12 +44,15 @@ class TestHallucinationRate:
 
 class TestEvidenceCoverage:
     def test_full_coverage(self, sample_evidence_item):
-        question = _question([40])  # matches sample_evidence_item's page
+        # doc_name must match sample_evidence_item's source_document, same as
+        # TestCitationCorrectness below — evidence_coverage now also checks the source document,
+        # not just the page number (see matches_evidence_reference).
+        question = _question([40], doc_name="MICROSOFT_2022_10K")
         result = evidence_coverage(["EV_001"], [sample_evidence_item], question)
         assert result == 1.0
 
     def test_no_citations_scores_zero(self, sample_evidence_item):
-        question = _question([40])
+        question = _question([40], doc_name="MICROSOFT_2022_10K")
         assert evidence_coverage([], [sample_evidence_item], question) == 0.0
 
     def test_no_ground_truth_evidence_scores_zero(self, sample_evidence_item):

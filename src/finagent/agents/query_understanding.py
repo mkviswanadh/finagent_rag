@@ -14,12 +14,15 @@ literal routing rules from the proposal are never silently missed.
 
 from __future__ import annotations
 
+import logging
 import re
 
+from finagent.agents.prompt_helpers import truncate_for_log
 from finagent.config import MAX_TOKENS_CLASSIFICATION, Settings
-from finagent.data.schemas import QueryAnalysis, QueryComplexity
+from finagent.data.schemas import LLMCallRecord, QueryAnalysis, QueryComplexity
 from finagent.llm.groq_client import GroqClient
-from finagent.data.schemas import LLMCallRecord
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """You are the Query Understanding Agent inside an adaptive multi-agent financial \
 question-answering system. Your job is to analyze one user question about a company's financial \
@@ -88,6 +91,7 @@ class QueryUnderstandingAgent:
             A tuple of the resolved `QueryAnalysis` (after deterministic rule reconciliation) and
             the `LLMCallRecord` documenting the single Groq call this method makes.
         """
+        logger.info("Query Understanding: analyzing question %r", truncate_for_log(question))
         record = self._llm.complete_json(
             agent_name="query_understanding",
             system_prompt=_SYSTEM_PROMPT,
@@ -136,6 +140,12 @@ class QueryUnderstandingAgent:
             needs_multiple_evidence_chunks=needs_multiple_evidence_chunks,
             needs_refinement=needs_refinement,
             routing_rationale=str(parsed.get("routing_rationale", "")).strip(),
+        )
+        logger.info(
+            "Query Understanding: routed as %s (company=%s, year=%s, metric=%s, "
+            "needs_refinement=%s) in %.2fs, %d tokens",
+            analysis.complexity.value, analysis.company, analysis.year, analysis.metric,
+            analysis.needs_refinement, record.latency_seconds, record.total_tokens,
         )
         return analysis, record
 

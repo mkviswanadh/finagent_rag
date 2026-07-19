@@ -11,6 +11,22 @@ from __future__ import annotations
 from finagent.data.schemas import EvidenceItem
 
 
+def truncate_for_log(text: str, max_length: int = 80) -> str:
+    """Shorten a string for a one-line log message, without cutting mid-word where avoidable.
+
+    Args:
+        text: The text to shorten (typically a question or answer being logged at INFO level).
+        max_length: Maximum length of the returned string, including the trailing ellipsis.
+
+    Returns:
+        `text` unchanged if it's already short enough, else a truncated copy ending in "...".
+    """
+    text = text.strip()
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
+
+
 def format_evidence_block(evidence: list[EvidenceItem]) -> str:
     """Render retrieved/filtered evidence as a numbered, citable block for an LLM prompt.
 

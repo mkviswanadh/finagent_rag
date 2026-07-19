@@ -66,6 +66,12 @@ LLM_TEMPERATURE = 0.0
 
 CHROMA_COLLECTION_NAME = "financebench_chunks"
 
+# Groq pricing for llama-3.3-70b-versatile, USD per million tokens, as published on
+# https://groq.com/pricing/ (checked at implementation time — prices change; update here if it
+# drifts, rather than hardcoding a stale rate inline wherever cost is computed).
+GROQ_PRICE_PER_MILLION_INPUT_TOKENS_USD = 0.59
+GROQ_PRICE_PER_MILLION_OUTPUT_TOKENS_USD = 0.79
+
 # Multi-query expansion width used by EXP-10 and, when the adaptive route selects it, EXP-11/12/13/14.
 MULTI_QUERY_VARIANT_COUNT = 3
 

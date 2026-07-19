@@ -48,13 +48,17 @@ class _Unit:
         return len(_ENCODING.encode(self.text))
 
 
-# A page where 2+ *distinct* canonical sections all match is almost certainly a Table of Contents
+# A page where 3+ *distinct* canonical sections all match is almost certainly a Table of Contents
 # or index page (financial-report TOCs list every section name as a short standalone line), not
-# real section content — a real content page essentially never contains two different section
-# headings. Such pages are excluded from section (re)tagging entirely, or the TOC's first mention
-# of e.g. "Controls and Procedures" would prematurely claim that label for everything up to the
-# next matched heading, potentially the bulk of the document.
-_TOC_PAGE_DISTINCT_SECTION_THRESHOLD = 2
+# real section content. The threshold is 3 rather than 2 because a legitimate content page can
+# genuinely contain 2 distinct heading matches back-to-back — e.g. a 10-K's Part II item list
+# ("Item 9. Changes in ... / Item 9A. Controls and Procedures. / Item 9B. Other Information.") on
+# one page matches both "Other Item Disclosures" and "Controls and Procedures" without being a
+# TOC. Verified against this dataset: real TOC pages here match 3-4 distinct sections; the densest
+# legitimate multi-item content page matches exactly 2. Such pages are excluded from section
+# (re)tagging entirely, or a TOC's early mention of e.g. "Controls and Procedures" would
+# prematurely claim that label for everything up to the next matched heading.
+_TOC_PAGE_DISTINCT_SECTION_THRESHOLD = 3
 
 
 def _is_toc_like_page(page_text: str) -> bool:

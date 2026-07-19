@@ -88,8 +88,11 @@ preserve structure, not just dump raw text.
 Pipeline order:
 
 1. **PDF Text Extraction** — extract text preserving headings, tables, section boundaries. (Use
-   `pypdf`'s `PdfReader(...).pages[i].extract_text()` per this workspace's environment notes —
-   poppler/`pdftoppm` is not installed here.)
+   `PyMuPDF`'s `fitz.open(path)` + `page.get_text()` — no poppler/`pdftoppm` needed either way, but
+   PyMuPDF's layout reconstruction keeps multi-word headings on one line where `pypdf` was found to
+   fragment them across lines on real 10-Ks, breaking line-level section detection; it's also what
+   FinanceBench's own baseline notebook uses via `PyMuPDFLoader`, and ~30x faster in practice on
+   this corpus. See `document_processing/pdf_extraction.py`.)
 2. **Table Extraction** — extract financial tables/numerical statements where possible (balance
    sheet, income statement, cash flow). Numerical questions depend on this succeeding.
 3. **Cleaning** — remove repeated headers, page numbers, navigation elements, formatting noise.
@@ -300,9 +303,13 @@ Steps 10–15 map directly onto the finagent-experiments skill's result-recordin
 ## 9. Tech stack & environment notes
 
 - Python 3.12, LangChain 0.3+, ChromaDB 0.5+, Pandas 2.2+, NumPy 2.2+, Scikit-learn 1.6+, FAISS 1.10+.
+  Actual pinned versions (incl. two deliberate deviations — numpy 1.26.4, scikit-learn 1.5.0 — for
+  compatibility with the pinned ChromaDB/sentence-transformers stack) are in `requirements.txt`;
+  install into the project's `.venv`, not the system/global Python.
 - Hardware target: i7/Ryzen 7, 16GB+ RAM, RTX 3060+ GPU, 500GB+ SSD (informs batch sizes / local vs.
   cloud embedding choices — Colab is the proposal's stated fallback for constrained compute).
-- This machine has no poppler/`pdftoppm` — use `pypdf` for PDF text extraction, not
+- This machine has no poppler/`pdftoppm`, and neither needs it — use `PyMuPDF` (`fitz`) for PDF text
+  extraction, not `pypdf` (fragments multi-word headings across lines on real 10-Ks — see §2) or
   `pdf2image`/`pdftoppm`-based tooling.
 - Printing non-ASCII characters (e.g. "→", "Naïve") directly to this machine's git-bash terminal can
   crash on cp1252 encoding — write extraction/analysis output to a file and Read it, or strip

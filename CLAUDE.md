@@ -4,6 +4,30 @@ Master's thesis (Machine Learning & AI, LJMU) implementation for **Kasi Viswanad
 
 This workspace is for **coding/development/implementation only**. The literature review and thesis-document work lives in a separate documentation workspace — this one is scoped to building the actual FinAgent-RAG system, running the 14 experiments, and capturing results.
 
+## Workspace Setup
+
+- **Source**: `src/finagent/` (Python package). Run with `PYTHONPATH=src`.
+- **Venv**: `.venv/` at project root — install/run with `.venv/Scripts/python.exe` (Windows), never
+  the global/anaconda Python. Dependencies pinned in `requirements.txt`.
+- **Data**: `data/` — `pdfs/` (368 FinanceBench PDFs, git-ignored, ~674MB), `financebench_open_source.jsonl`
+  (150 QA), `financebench_document_information.jsonl` (361 filings metadata), `baseline_results/`
+  (Patronus' own baselines, reference only), `chroma_store/` (git-ignored, generated).
+- **Git**: remote is `github.com/mkviswanadh/finagent_rag`, branch `main`. Confirm with the user
+  before pushing (per standing operating guidance), even though local commits are fine to make freely.
+- **Secrets**: `GROQ_API_KEY` goes in a git-ignored `.env` file at project root (see `.env.example`).
+
+## Requirement Deviations (from Proposal §8 / Table 8.1)
+
+Documented deliberately, not accidental drift:
+
+| Requirement | Proposal | Actual | Why |
+|---|---|---|---|
+| NumPy | 2.2+ | 1.26.4 | Compatibility with pinned ChromaDB 0.5.0 / sentence-transformers 2.6.1 stack; untested whether those tolerate NumPy 2.x. |
+| Scikit-learn | 1.6+ | 1.5.0 | Same compatibility reasoning as NumPy. |
+| GPU | RTX 3060+ | None (CPU only, `torch.cuda.is_available()` is `False`) | LLM inference runs remotely via Groq API, not locally, so a local GPU isn't load-bearing for that. The `all-MiniLM-L6-v2` embedding model runs on CPU fine, just slower than GPU during bulk ingestion of the 368-PDF corpus. |
+| PDF extraction library | Not named in Table 8.1 (proposal only specifies the pipeline step, not a library) | `PyMuPDF`, not `pypdf` | `pypdf` fragments multi-word headings (e.g. "Item 9A. Controls and Procedures.") across separate lines on real 10-Ks, breaking line-level section detection; PyMuPDF keeps them intact, needs no poppler, and is what FinanceBench's own baseline notebook uses. See `finagent-architecture` skill §2/§9. |
+| Additional packages | Not named in Table 8.1 | `groq`, `tenacity`, `python-dotenv`, `tiktoken`, `sentence-transformers`, `pymupdf` | Necessary for implementation (Groq API client, retry logic, embedding backend, token counting) but outside the proposal's condensed requirements table. |
+
 ## Thesis Title
 
 **FinAgent-RAG: Adaptive Multi-Agent Retrieval-Augmented Generation for Financial Document Intelligence**
@@ -117,7 +141,7 @@ Confirmed via `Coding_Sheet.xlsx` (sheet "Overall Performance Results of") — t
 - `Coding_Sheet.xlsx` — the authoritative experiment tracker, all 7 sheets fully read: "Common Metrics", "Overall Performance Results of", "Final Guidance Sheet", "Short summary", "Retrieval and Evidence Groundin", "Final Comparative Ranking and A", "Query Complexity-Wise Final Res". The four result sheets (all but "Common Metrics" and "Final Guidance Sheet") are empty templates to be filled in as experiments run. Distilled into the `finagent-experiments` skill (see below).
 - `Coding_Sheet_RESULTS.xlsx` — working copy of `Coding_Sheet.xlsx` for recording actual experiment results as EXP-01–14 are run. `Coding_Sheet.xlsx` itself must never be edited; it stays the untouched reference/original.
 
-Read PDFs via `pypdf` (`PdfReader(...).pages[i].extract_text()`) — `pdftoppm`/poppler is not installed on this machine. Read the xlsx via `openpyxl.load_workbook(path, data_only=True)`. Note: printing cell values containing non-ASCII characters (e.g. "→", "Naïve") directly to this machine's git-bash terminal can crash on cp1252 encoding — write to a file instead of printing, or strip non-ASCII first.
+Read PDFs via `PyMuPDF` (`fitz.open(path)` + `page.get_text()`) — no poppler/`pdftoppm` needed, and it preserves multi-word headings on one line where `pypdf` (tried first, then replaced) fragmented them across lines on real 10-Ks, breaking section detection. It's also what FinanceBench's own baseline notebook uses. Read the xlsx via `openpyxl.load_workbook(path, data_only=True)`. Note: printing cell values containing non-ASCII characters (e.g. "→", "Naïve") directly to this machine's git-bash terminal can crash on cp1252 encoding — write to a file instead of printing, or strip non-ASCII first.
 
 ## Skills
 

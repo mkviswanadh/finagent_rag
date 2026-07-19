@@ -1,9 +1,14 @@
 """PDF text extraction (Proposal Table 7.4, Step 1: "PDF Text Extraction").
 
-Uses `pypdf` exclusively — this development machine has no poppler/`pdftoppm` installed, so any
-extraction path depending on `pdf2image` or `pdftoppm` will fail here (see finagent-architecture
-skill §9). `pypdf`'s layout-preserving text extraction is sufficient to keep headings and rough
-table row structure intact for the downstream table-heuristic and section-detection stages.
+Uses `PyMuPDF` (the `fitz` module) — the same library FinanceBench's own authors used for their
+published baselines (`notebooks_evaluation_playground_upstream.ipynb`, via LangChain's
+`PyMuPDFLoader`). It requires no external poppler/`pdftoppm` binary (this development machine has
+neither installed — see finagent-architecture skill §9), and its layout reconstruction keeps
+multi-word headings intact on a single line (e.g. "Item 9A. Controls and Procedures.") where
+`pypdf`'s extraction was observed to fragment the same heading across three separate lines
+("Item 9A." / "Controls" / "and Procedures.") on real 10-K filings in this dataset — which broke
+line-level heading detection in `section_detection.py`. This was verified directly against
+`data/pdfs/3M_2018_10K.pdf` page 128 during implementation.
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 
 
 @dataclass(frozen=True)
@@ -42,9 +47,9 @@ def extract_pdf_pages(pdf_path: str | Path) -> list[PageContent]:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    reader = PdfReader(str(pdf_path))
     pages: list[PageContent] = []
-    for index, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
-        pages.append(PageContent(page_number=index + 1, text=text))
+    with fitz.open(str(pdf_path)) as doc:
+        for index, page in enumerate(doc):
+            text = page.get_text() or ""
+            pages.append(PageContent(page_number=index + 1, text=text))
     return pages

@@ -51,8 +51,15 @@ _SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"management'?s\s+discussion\s+and\s+analysis|^\s*md&a\b", re.IGNORECASE
         ),
     ),
-    ("Risk Factors", re.compile(r"^\s*risk\s+factors\b", re.IGNORECASE)),
-    ("Legal Proceedings", re.compile(r"^\s*legal\s+proceedings\b", re.IGNORECASE)),
+    # Optional "Item 1A."/"Item 3." prefix: real 10-K headings are usually "Item 1A. Risk
+    # Factors", not a bare "Risk Factors" line — without tolerating the item-number prefix here,
+    # these fall through to the generic "Other Item Disclosures" catch-all below instead of their
+    # specific, more useful name.
+    ("Risk Factors", re.compile(r"^\s*(item\s+1a\.?\s*)?risk\s+factors\b", re.IGNORECASE)),
+    (
+        "Legal Proceedings",
+        re.compile(r"^\s*(item\s+3\.?\s*)?legal\s+proceedings\b", re.IGNORECASE),
+    ),
     (
         "Controls and Procedures",
         re.compile(r"controls\s+and\s+procedures", re.IGNORECASE),
@@ -73,10 +80,14 @@ _SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Similarly, Part II/III/IV of a 10-K (Item 9 onward: changes in accountants, controls,
     # governance, compensation, exhibits) contains items with no direct financial-QA relevance
     # that this codebase does not attempt to name individually — but an unrecognized "Item N."
-    # heading must still break carry-forward from an earlier, unrelated named section.
+    # heading must still break carry-forward from an earlier, unrelated named section. The
+    # trailing `(\S.*)?` optionally captures a same-line title ("Item 10. Directors, Executive
+    # Officers...") so the whole heading — not just the item number — counts toward this match's
+    # coverage ratio; without capturing the title too, a long heading line would score a low
+    # coverage ratio against just the "Item 10." prefix and get rejected by `_MIN_HEADING_MATCH_COVERAGE`.
     (
         "Other Item Disclosures",
-        re.compile(r"^\s*item\s+\d{1,2}[a-z]?\.?\s*$", re.IGNORECASE),
+        re.compile(r"^\s*item\s+\d{1,2}[a-z]?\.?\s*(\S.*)?$", re.IGNORECASE),
     ),
 ]
 

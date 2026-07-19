@@ -2,7 +2,7 @@
 
 This machine has no poppler/Ghostscript, which rules out image-based table extractors
 (camelot's lattice/stream-on-image modes, tabula-py's Java+Ghostscript dependency). Financial
-tables in FinanceBench 10-K/10-Q filings are typically extractable as text by `pypdf` with rows
+tables in FinanceBench 10-K/10-Q filings are typically extractable as text by `PyMuPDF` with rows
 kept roughly intact (each table row on its own line, columns separated by irregular whitespace).
 This module applies a text-pattern heuristic to identify and preserve those rows as distinguished
 "table blocks" — rows with a high density of numeric/currency tokens — so the chunker (Proposal
@@ -52,7 +52,7 @@ class TableBlock:
 
 def _is_table_like_line(line: str) -> bool:
     # Bare currency/percent symbols (e.g. a lone "$" preceding a number on its own token, as
-    # pypdf often extracts "$ 23,646") carry no signal on their own and must not dilute the
+    # PyMuPDF often extracts "$ 23,646") carry no signal on their own and must not dilute the
     # density denominator, or a row that is entirely dollar figures reads as mostly non-numeric.
     tokens = [tok for tok in line.split() if tok not in {"$", "%", "-", "—", "–"}]
     if not tokens:
